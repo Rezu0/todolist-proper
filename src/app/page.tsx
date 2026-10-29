@@ -1,4 +1,4 @@
-
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { connectDB } from "@/lib/mongodb";
 import { getUserId } from "@/lib/auth";
@@ -18,7 +18,7 @@ export const metadata = {
   description: "Kelola task dan pengingat harian kamu.",
 };
 
-export default async function Home() {
+async function BoardLoader() {
   const uid = await getUserId();
 
   if (!uid) {
@@ -31,12 +31,8 @@ export default async function Home() {
     User.findById(uid)
       .select("name email")
       .lean<{ name?: string; email: string }>(),
-    Task.find({ userId: uid })
-      .sort({ createdAt: 1 })
-      .lean<TaskDoc[]>(),
-    Reminder.find({ userId: uid })
-      .sort({ createdAt: 1 })
-      .lean<ReminderDoc[]>(),
+    Task.find({ userId: uid }).sort({ createdAt: 1 }).lean<TaskDoc[]>(),
+    Reminder.find({ userId: uid }).sort({ createdAt: 1 }).lean<ReminderDoc[]>(),
   ]);
 
   if (!user) {
@@ -44,12 +40,20 @@ export default async function Home() {
   }
 
   return (
+    <Board
+      initialTasks={tasks.map(toTask)}
+      initialReminders={reminders.map(toReminder)}
+      userName={user.name || user.email}
+    />
+  );
+}
+
+export default function Home() {
+  return (
     <main className="min-h-screen bg-desk px-4 py-5 text-ink antialiased sm:px-6 sm:py-8">
-      <Board
-        initialTasks={tasks.map(toTask)}
-        initialReminders={reminders.map(toReminder)}
-        userName={user.name || user.email}
-      />
+      <Suspense fallback={null}>
+        <BoardLoader />
+      </Suspense>
     </main>
   );
 }
