@@ -2,9 +2,15 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
+import { api } from "@/lib/api";
 import { addDays, diffDays, fromKey, today } from "@/lib/date";
 import type { Reminder, Status, Task } from "@/lib/types";
+import type { Checklist, Show } from "@/lib/serializeLists";
+import StylePanel, { Palette } from "@/components/StylePanel";
+import { DEFAULT_SETTINGS, mergeSettings, themeStyle, type Settings, type SettingsPatch } from "@/lib/settings"
+import { DayChecklists, ManageChecklists } from "@/components/Checklists";
 import { useEffect, useRef, useState } from "react";
+import CasePhotos from "./CasesPhotos";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STATUS: Record<Status, string> = { todo: "Not started", doing: "In progress", done: "Done" };
@@ -12,7 +18,7 @@ const NEXT: Record<Status, Status> = { todo: "doing", doing: "done", done: "todo
 const fmtFull = new Intl.DateTimeFormat("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const fmtShort = new Intl.DateTimeFormat("en-US", { weekday: "short", day: "numeric", month: "short" });
 
-type TaskPatch = Partial<Pick<Task, "text" | "status" | "due" | "note" | "day">>;
+type TaskPatch = Partial<Pick<Task, "text" | "status" | "due" | "note" | "day" | "images" | "color">>;
 
 /* ---------- class Tailwind yang dipakai berulang ---------- */
 const focusUi = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
@@ -27,8 +33,9 @@ const ibtn = `inline-flex size-8 cursor-pointer items-center justify-center roun
 const nbtnBase = `inline-flex cursor-pointer items-center justify-center rounded-[10px] border border-line bg-bar font-semibold text-ink hover:border-ink-soft [&_svg]:size-[18px] ${focusUi}`;
 const nbtn = `${nbtnBase} h-10 min-w-10 px-3 text-[0.9rem]`;
 const nbtnSm = `${nbtnBase} h-[30px] px-3 text-[0.8rem]`;
+const tabOn = "!border-accent !bg-accent !text-on-accent";
 
-const note = "relative isolate min-w-0 rounded-[3px] px-3.5 pt-5 pb-[18px] text-paper shadow-note dark:shadow-note-dark min-[480px]:px-5 min-[480px]:pt-[22px] min-[480px]:pb-5";
+const note = "relative isolate min-w-0 rounded-[var(--note-r,3px)] px-3.5 pt-5 pb-[18px] text-paper shadow-note dark:shadow-note-dark min-[480px]:px-5 min-[480px]:pt-[22px] min-[480px]:pb-5";
 const tape = "before:pointer-events-none before:absolute before:-top-[9px] before:left-1/2 before:z-10 before:-ml-[38px] before:h-5 before:w-[76px] before:rotate-[-2deg] before:bg-[#fffdf2]/65 before:shadow-[0_1px_2px_rgba(0,0,0,0.12)] before:content-['']";
 const noteTodo = `${note} ${tape} rotate-[-0.25deg] bg-p-todo`;
 const noteRem = `${note} ${tape} rotate-[0.45deg] bg-p-rem`;
@@ -39,24 +46,6 @@ const emptyCls = "mt-2.5 mb-1 font-note text-[1.1rem] text-paper-soft";
 const addForm = "mt-3.5 flex flex-wrap gap-2 border-t border-dashed border-paper/30 pt-3.5";
 const rowCls = "border-t border-dashed border-paper/30";
 const stColor: Record<Status, string> = { todo: "text-paper-soft", doing: "text-doing", done: "text-done" };
-
-/* ---------- API helper ---------- */
-async function api<T = unknown>(url: string, method: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (res.status === 401) {
-    window.location.href = "/login";
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Request failed");
-  }
-  return res.json();
-}
 
 /* ---------- icons ---------- */
 function Svg({ children }: { children: React.ReactNode }) {
@@ -71,6 +60,7 @@ const IconNext = () => <Svg><path d="M5 12h14M13 6l6 6-6 6" /></Svg>;
 const IconDel = () => <Svg><path d="M6 6l12 12M18 6L6 18" /></Svg>;
 const IconLeft = () => <Svg><path d="M15 5l-7 7 7 7" /></Svg>;
 const IconRight = () => <Svg><path d="M9 5l7 7-7 7" /></Svg>;
+const IconDrop = () => <Svg><path d="M12 3s6 6.2 6 10.5A6 6 0 0 1 6 13.5C6 9.2 12 3 12 3z" /></Svg>;
 
 function StatusIcon({ status }: { status: Status }) {
   if (status === "doing")
@@ -123,12 +113,23 @@ function EditInput({ value, onDone }: { value: string; onDone: (v: string | null
 interface Props {
   initialTasks: Task[];
   initialReminders: Reminder[];
+  initialLists: Checklist[];
+  initialShows: Show[];
   userName: string;
+  initialSettings: Settings;
 }
 
-export default function Board({ initialTasks, initialReminders, userName }: Props) {
+export default function Board({ initialTasks, initialReminders, initialLists, initialShows, userName, initialSettings }: Props) {
   const [tasks, setTasks] = useState(initialTasks);
   const [reminders, setReminders] = useState(initialReminders);
+  const [lists, setLists] = useState(initialLists);
+  const [shows, setShows] = useState(initialShows);
+  const [screen, setScreen] = useState<"board" | "lists">("board");
+  const [settings, setSettings] = useState(initialSettings);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [palFor, setPalFor] = useState<string | null>(null);
+  const settingsRef = useRef(settings);
+  const settingsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // today & view kosong sampai mount, supaya tanggal server (UTC) tidak bentrok dengan tanggal browser
   const [t, setT] = useState("");
   const [view, setView] = useState("");
@@ -157,7 +158,36 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
     return () => clearInterval(id);
   }, []);
 
-  if (!t) return null;
+  // Pembungkus layar: membawa tema (data-accent + CSS variable) dari pengaturan Style
+  const { attrs, style } = themeStyle(settings);
+  const shell = (children: React.ReactNode) => (
+    <div {...attrs} style={style} className="themed min-h-screen bg-desk px-4 py-5 font-sans text-ink antialiased sm:px-6 sm:py-8">
+      {children}
+    </div>
+  );
+
+  // Terapkan langsung di layar, simpan ke server setelah 500 ms tidak ada perubahan
+  function updateSettings(patch: SettingsPatch) {
+    const next = mergeSettings(settingsRef.current, patch);
+    settingsRef.current = next;
+    setSettings(next);
+    clearTimeout(settingsTimer.current);
+    settingsTimer.current = setTimeout(() => {
+      api("/api/settings", "PATCH", settingsRef.current).catch(() => showToast("Failed to save the style"));
+    }, 500);
+  }
+  function resetNotes() {
+    updateSettings({ nc: DEFAULT_SETTINGS.nc });
+    tasks.filter((x) => x.color).forEach((x) => patchTask(x.id, { color: "" }));
+    showToast("Note colors reset");
+  }
+  function resetAll() {
+    updateSettings(DEFAULT_SETTINGS);
+    tasks.filter((x) => x.color).forEach((x) => patchTask(x.id, { color: "" }));
+    showToast("Style reset");
+  }
+
+  if (!t) return shell(null);
 
   /* ---------- helpers ---------- */
   function showToast(msg: string, undo?: () => void) {
@@ -176,6 +206,8 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
   }
   const setLocal = (id: string, patch: TaskPatch) =>
     setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const hasNoteStuff = (x: Task) =>
+  !!x.note || (x.images?.length ?? 0) > 0;
 
   /* ---------- task actions ---------- */
   async function patchTask(id: string, patch: TaskPatch) {
@@ -207,8 +239,7 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
   }
 
   function toggleNote(task: Task) {
-    const wasOpen = !!task.note || !!openNotes[task.id];
-    if (wasOpen && !task.note) return closeNote(task.id);
+    if (!hasNoteStuff(task) && openNotes[task.id]) return closeNote(task.id);
     setOpenNotes((o) => ({ ...o, [task.id]: true }));
     setTimeout(() => document.getElementById(`n-${task.id}`)?.focus(), 0);
   }
@@ -242,7 +273,10 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
       showToast("Failed to delete the task");
       return;
     }
-    showToast("Task deleted", async () => {
+    // Catatan: foto ikut terhapus di server, jadi Undo mengembalikan teks, status, due, dan note saja
+    showToast((task.images?.length ?? 0) > 0
+      ? "Task deleted (photos can't be restored)"
+      : "Task deleted", async () => {
       try {
         const restored = await api<Task>("/api/tasks", "POST", {
           day: task.day, text: task.text, status: task.status, due: task.due, note: task.note,
@@ -341,8 +375,9 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
   const lateShown = lateTasks.slice(0, 6);
 
   const dateLabel = fmtFull.format(fromKey(view));
+  const onBoard = screen === "board";
 
-  return (
+  return shell(
     <>
       <div className="mx-auto flex max-w-270 flex-col gap-5.5">
         <header className="flex flex-col gap-3.5">
@@ -350,204 +385,253 @@ export default function Board({ initialTasks, initialReminders, userName }: Prop
             <h1 className="text-[0.78rem] font-bold tracking-[0.14em] text-ink-soft uppercase">Daily Work Board</h1>
             <span className="inline-flex items-center gap-2.5 text-[0.8rem] text-ink-soft">
               {userName}
+              <button type="button" className={nbtnSm} aria-expanded={styleOpen} aria-controls="stylePanel" onClick={() => setStyleOpen((o) => !o)}>Style</button>
               <button type="button" className={nbtnSm} onClick={logout}>Sign out</button>
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="mx-1 min-w-0 flex-auto font-note text-[clamp(1.5rem,5vw,2.2rem)] leading-[1.15] font-bold text-balance">
-              {view === t ? `${dateLabel} (today)` : dateLabel}
-            </h2>
-            <button type="button" className={nbtn} aria-label="Previous day" onClick={() => setView(addDays(view, -1))}><IconLeft /></button>
-            <button type="button" className={nbtn} aria-label="Next day" onClick={() => setView(addDays(view, 1))}><IconRight /></button>
-            {view !== t && <button type="button" className={nbtn} onClick={() => setView(t)}>Today</button>}
-          </div>
+          <nav className="flex gap-1.5" aria-label="Screens">
+            <button type="button" className={`${nbtnSm} ${onBoard ? tabOn : ""}`} aria-pressed={onBoard} onClick={() => setScreen("board")}>Daily board</button>
+            <button type="button" className={`${nbtnSm} ${!onBoard ? tabOn : ""}`} aria-pressed={!onBoard} onClick={() => setScreen("lists")}>Checklists</button>
+          </nav>
 
-          <div className="grid grid-cols-7 gap-1.5">
-            {DAYS.map((name, i) => {
-              const k = addDays(weekStart, i);
-              const all = tasks.filter((x) => x.day === k);
-              const left = all.filter((x) => x.status !== "done").length;
-              const badge = left > 0 ? left : all.length > 0 ? "✓" : "";
-              const sel = k === view;
-              const sub = sel ? "text-on-accent" : "text-ink-soft";
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  className={`flex min-w-0 cursor-pointer flex-col items-center gap-px rounded-[10px] border pt-1.5 pb-1.25 ${focusUi} ${
-                    sel ? "border-accent bg-accent text-on-accent" : "border-line bg-bar text-ink"
-                  }`}
-                  aria-label={fmtFull.format(fromKey(k)) + (left ? `, ${left} tasks not done` : "")}
-                  aria-current={sel ? "date" : undefined}
-                  onClick={() => setView(k)}
-                >
-                  <span className={`text-[0.7rem] tracking-[0.06em] uppercase ${sub}`}>{name}</span>
-                  <span className={`text-[1.05rem] font-bold tabular-nums ${k === t ? "underline decoration-2 underline-offset-[3px]" : ""}`}>{fromKey(k).getDate()}</span>
-                  <span className={`min-h-[1em] text-[0.68rem] font-semibold tabular-nums ${sub}`}>{badge}</span>
-                </button>
-              );
-            })}
-          </div>
+          {styleOpen && <StylePanel settings={settings} onChange={updateSettings} onResetNotes={resetNotes} onResetAll={resetAll} />}
 
-          <div className="flex flex-col gap-1.5">
-            <div className="h-2 overflow-hidden rounded-full bg-line" aria-hidden="true">
-              <div
-                className="h-full rounded-full bg-meter transition-[width] duration-200 motion-reduce:transition-none"
-                style={{ width: `${dayTasks.length ? Math.round((doneCount / dayTasks.length) * 100) : 0}%` }}
-              />
-            </div>
-            <p className="m-0 text-[0.9rem] text-ink-soft">
-              {dayTasks.length
-                ? `${doneCount} of ${dayTasks.length} tasks done${doingCount ? ` · ${doingCount} in progress` : ""}`
-                : "No tasks for this day yet"}
-              {lateCount > 0 && <span className="font-semibold text-warn"> · {lateCount} overdue</span>}
-            </p>
-          </div>
+          {onBoard && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="mx-1 min-w-0 flex-auto font-note text-[clamp(1.5rem,5vw,2.2rem)] leading-[1.15] font-bold text-balance">
+                  {view === t ? `${dateLabel} (today)` : dateLabel}
+                </h2>
+                <button type="button" className={nbtn} aria-label="Previous day" onClick={() => setView(addDays(view, -1))}><IconLeft /></button>
+                <button type="button" className={nbtn} aria-label="Next day" onClick={() => setView(addDays(view, 1))}><IconRight /></button>
+                {view !== t && <button type="button" className={nbtn} onClick={() => setView(t)}>Today</button>}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1.5">
+                {DAYS.map((name, i) => {
+                  const k = addDays(weekStart, i);
+                  const all = tasks.filter((x) => x.day === k);
+                  const left = all.filter((x) => x.status !== "done").length;
+                  const badge = left > 0 ? left : all.length > 0 ? "✓" : "";
+                  const sel = k === view;
+                  const sub = sel ? "text-on-accent" : "text-ink-soft";
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      className={`flex min-w-0 cursor-pointer flex-col items-center gap-px rounded-[10px] border pt-1.5 pb-1.25 ${focusUi} ${
+                        sel ? "border-accent bg-accent text-on-accent" : "border-line bg-bar text-ink"
+                      }`}
+                      aria-label={fmtFull.format(fromKey(k)) + (left ? `, ${left} tasks not done` : "")}
+                      aria-current={sel ? "date" : undefined}
+                      onClick={() => setView(k)}
+                    >
+                      <span className={`text-[0.7rem] tracking-[0.06em] uppercase ${sub}`}>{name}</span>
+                      <span className={`text-[1.05rem] font-bold tabular-nums ${k === t ? "underline decoration-2 underline-offset-[3px]" : ""}`}>{fromKey(k).getDate()}</span>
+                      <span className={`min-h-[1em] text-[0.68rem] font-semibold tabular-nums ${sub}`}>{badge}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <div className="h-2 overflow-hidden rounded-full bg-line" aria-hidden="true">
+                  <div
+                    className="h-full rounded-full bg-meter transition-[width] duration-200 motion-reduce:transition-none"
+                    style={{ width: `${dayTasks.length ? Math.round((doneCount / dayTasks.length) * 100) : 0}%` }}
+                  />
+                </div>
+                <p className="m-0 text-[0.9rem] text-ink-soft">
+                  {dayTasks.length
+                    ? `${doneCount} of ${dayTasks.length} tasks done${doingCount ? ` · ${doingCount} in progress` : ""}`
+                    : "No tasks for this day yet"}
+                  {lateCount > 0 && <span className="font-semibold text-warn"> · {lateCount} overdue</span>}
+                </p>
+              </div>
+            </>
+          )}
         </header>
 
-        <main className="grid grid-cols-[minmax(0,1fr)] gap-6.5 min-[880px]:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] min-[880px]:items-start">
-          <section className={noteTodo} aria-labelledby="todoH">
-            <h3 id="todoH" className={noteTitle}>{view === t ? "Today's to-do" : `To-do · ${fmtShort.format(fromKey(view))}`}</h3>
-            <p className={hint}>Tap the circle to change status: not started, in progress, done. The note icon opens a small case note under the task.</p>
+        {!onBoard ? (
+          <main>
+            <ManageChecklists
+              lists={lists}
+              shows={shows}
+              day={view}
+              setLists={setLists}
+              setShows={setShows}
+              onError={showToast}
+              dayLabel={view === t ? "today" : fmtShort.format(fromKey(view))}
+            />
+          </main>
+        ) : (
+          <main className="grid grid-cols-[minmax(0,1fr)] gap-6.5 min-[880px]:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] min-[880px]:items-start">
+            <section className={noteTodo} aria-labelledby="todoH">
+              <h3 id="todoH" className={noteTitle}>{view === t ? "Today's to-do" : `To-do · ${fmtShort.format(fromKey(view))}`}</h3>
+              <p className={hint}>Tap the circle to change status: not started, in progress, done. The note icon opens a small case note under the task.</p>
 
-            <ul>
-              {sortedTasks.map((task) => {
-                const di = dueInfo(task);
-                const showSlip = !!task.note || !!openNotes[task.id];
-                const done = task.status === "done";
-                return (
-                  <li key={task.id} className={`grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 py-2.5 min-[481px]:grid-cols-[auto_minmax(0,1fr)_auto] ${rowCls}`}>
-                    <button
-                      type="button"
-                      className={`col-start-1 row-start-1 inline-flex size-9 cursor-pointer items-center justify-center rounded-full p-0 [&_svg]:size-7 ${stColor[task.status]} ${focusPaper}`}
-                      aria-label={`Status: ${STATUS[task.status]}. Tap to change to ${STATUS[NEXT[task.status]]}`}
-                      onClick={() => patchTask(task.id, { status: NEXT[task.status] })}
-                    >
-                      <StatusIcon status={task.status} />
-                    </button>
-
-                    <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
-                      {editingId === task.id ? (
-                        <EditInput value={task.text} onDone={(v) => finishEdit(task, v)} />
-                      ) : (
-                        <button
-                          type="button"
-                          className={`cursor-pointer pt-1 text-left text-base font-medium wrap-anywhere ${done ? "text-paper-soft line-through" : "text-paper"} ${focusPaper}`}
-                          aria-label={`Edit text: ${task.text}`}
-                          onClick={() => setEditingId(task.id)}
-                        >
-                          {task.text}
-                        </button>
-                      )}
-                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.8rem] text-paper-soft">
-                        <span className={`font-bold ${stColor[task.status]}`}>{STATUS[task.status]}</span>
-                        <span className="inline-flex items-center gap-1.5">
-                          <label htmlFor={`due-${task.id}`}>Due</label>
-                          <input type="date" id={`due-${task.id}`} className={fieldSm} value={task.due} onChange={(e) => patchTask(task.id, { due: e.target.value })} />
-                        </span>
-                        {di.text && <span className={`font-bold ${di.cls === "late" ? "text-bad" : "text-paper"}`}>{di.text}</span>}
-                      </div>
-                      {showSlip && (
-                        <div className="mt-1 rotate-[-0.5deg] rounded-xs bg-p-slip px-2 pt-1.5 pb-2 shadow-[0_1px_2px_rgba(20,30,40,0.25)]">
-                          <label
-                            className="font-note text-[0.9rem] font-bold text-paper-soft"
-                            htmlFor={`n-${task.id}`}
-                          >
-                            Case note
-                          </label>
-
-                          <textarea
-                            id={`n-${task.id}`}
-                            className="mt-0.5 block min-h-[3.4em] w-full resize-y rounded-none border-0 bg-transparent px-0 py-0.5 font-note text-[1.02rem] leading-[1.35] text-paper field-sizing-content scheme-light placeholder:text-paper-soft/80 focus:ring-0 focus:outline-none focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-paper focus-visible:outline-dotted"
-                            rows={2}
-                            maxLength={2000}
-                            placeholder="Blockers, ticket number, call outcome"
-                            value={task.note}
-                            onChange={(e) => changeNote(task.id, e.target.value)}
-                            onBlur={(e) => {
-                              if (e.currentTarget.value.trim()) return;
-                              changeNote(task.id, "");
-                              closeNote(task.id);
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="col-start-2 row-start-2 flex items-start gap-0.5 min-[481px]:col-start-3 min-[481px]:row-start-1">
-                      <button type="button" className={`${ibtn} ${task.note ? "bg-white/45 text-paper" : ""}`} aria-label="Case note" title="Case note" onClick={() => toggleNote(task)}><IconNote /></button>
-                      <button type="button" className={ibtn} aria-label="Move to tomorrow" title="Move to tomorrow" onClick={() => moveTask(task, addDays(task.day, 1))}><IconNext /></button>
-                      <button type="button" className={ibtn} aria-label="Delete task" title="Delete task" onClick={() => deleteTask(task)}><IconDel /></button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            {sortedTasks.length === 0 && <p className={emptyCls}>No tasks for this day yet.</p>}
-
-            <form className={addForm} autoComplete="off" onSubmit={addTask}>
-              <label className="sr-only" htmlFor="taskText">New task</label>
-              <input id="taskText" type="text" className={`${field} flex-[1_1_200px]`} placeholder="Write a new task" maxLength={200} required value={newText} onChange={(e) => setNewText(e.target.value)} />
-              <span className="inline-flex items-center gap-1.5 text-[0.82rem] text-paper-soft">
-                <label htmlFor="taskDue">Due</label>
-                <input id="taskDue" type="date" className={field} value={newDue} onChange={(e) => setNewDue(e.target.value)} />
-              </span>
-              <button className={pbtn} type="submit">Add</button>
-            </form>
-          </section>
-
-          <div className="flex min-w-0 flex-col gap-6.5">
-            <section className={noteRem} aria-labelledby="remH">
-              <h3 id="remH" className={noteTitle}>Daily reminders</h3>
-              <p className={hint}>Shows up every day. Checks are tracked per day.</p>
               <ul>
-                {sortedReminders.map((r) => {
-                  const on = r.done.includes(view);
+                {sortedTasks.map((task) => {
+                  const di = dueInfo(task);
+                  const showSlip = hasNoteStuff(task) || !!openNotes[task.id];
+                  const done = task.status === "done";
                   return (
-                    <li key={r.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1 py-2 ${rowCls}`}>
-                      <input type="checkbox" id={`rc-${r.id}`} className="m-0 size-5 accent-done" checked={on} onChange={(e) => toggleReminder(r, e.target.checked)} />
-                      <label className={`font-medium wrap-anywhere ${on ? "text-paper-soft line-through" : ""}`} htmlFor={`rc-${r.id}`}>{r.text}</label>
-                      <span className="text-[0.85rem] font-bold tabular-nums">{r.time}</span>
-                      <button type="button" className={ibtn} aria-label={`Delete reminder: ${r.text}`} title="Delete reminder" onClick={() => deleteReminder(r)}><IconDel /></button>
+                    <li key={task.id} className={`grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 py-2.5 min-[481px]:grid-cols-[auto_minmax(0,1fr)_auto] ${rowCls}`}>
+                      <button
+                        type="button"
+                        className={`col-start-1 row-start-1 inline-flex size-9 cursor-pointer items-center justify-center rounded-full p-0 [&_svg]:size-7 ${stColor[task.status]} ${focusPaper}`}
+                        aria-label={`Status: ${STATUS[task.status]}. Tap to change to ${STATUS[NEXT[task.status]]}`}
+                        onClick={() => patchTask(task.id, { status: NEXT[task.status] })}
+                      >
+                        <StatusIcon status={task.status} />
+                      </button>
+
+                      <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
+                        {editingId === task.id ? (
+                          <EditInput value={task.text} onDone={(v) => finishEdit(task, v)} />
+                        ) : (
+                          <button
+                            type="button"
+                            className={`cursor-pointer pt-1 text-left text-base font-medium wrap-anywhere ${done ? "text-paper-soft line-through" : "text-paper"} ${focusPaper}`}
+                            aria-label={`Edit text: ${task.text}`}
+                            onClick={() => setEditingId(task.id)}
+                          >
+                            {task.text}
+                          </button>
+                        )}
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.8rem] text-paper-soft">
+                          <span className={`font-bold ${stColor[task.status]}`}>{STATUS[task.status]}</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <label htmlFor={`due-${task.id}`}>Due</label>
+                            <input type="date" id={`due-${task.id}`} className={fieldSm} value={task.due} onChange={(e) => patchTask(task.id, { due: e.target.value })} />
+                          </span>
+                          {di.text && <span className={`font-bold ${di.cls === "late" ? "text-bad" : "text-paper"}`}>{di.text}</span>}
+                        </div>
+                        {showSlip && (
+                          <div className="mt-1 rotate-[-0.5deg] rounded-xs bg-p-slip px-2 pt-1.5 pb-2 shadow-[0_1px_2px_rgba(20,30,40,0.25)]" style={task.color ? { background: task.color } : undefined}>
+                            <div className="flex items-center justify-between gap-1.5">
+                            <label className="font-note text-[0.9rem] font-bold text-paper-soft" htmlFor={`n-${task.id}`}>
+                              Case note
+                            </label>
+                              <button type="button" className={`${ibtn} !size-7`} aria-label="Change case note color" title="Change color" aria-expanded={palFor === task.id} onClick={() => setPalFor((p) => (p === task.id ? null : task.id))}><IconDrop /></button>
+                            </div>
+                            {palFor === task.id && <Palette value={task.color} autoLabel="Same as others" onPick={(color) => patchTask(task.id, { color })} />}
+
+                            <CasePhotos
+                              taskId={task.id}
+                              images={task.images ?? []}
+                              onChange={(images) => {
+                                setLocal(task.id, { images });
+                                api(`/api/tasks/${task.id}`, "PATCH", { images }).catch(() => {
+                                  showToast("Failed to save photos");
+                                });
+                              }}
+                              onError={showToast}
+                            >
+                              <textarea
+                                id={`n-${task.id}`}
+                                className="mt-0.5 block min-h-[3.4em] w-full resize-y rounded-none border-0 bg-transparent px-0 py-0.5 font-note text-[1.02rem] leading-[1.35] text-paper field-sizing-content scheme-light placeholder:text-paper-soft/80 focus:ring-0 focus:outline-none focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-paper focus-visible:outline-dotted"
+                                rows={2}
+                                maxLength={2000}
+                                placeholder="Blockers, ticket number, call outcome"
+                                value={task.note}
+                                onChange={(e) => changeNote(task.id, e.target.value)}
+                                onBlur={(e) => {
+                                  // Jangan tutup slip kalau masih ada foto
+                                  if (e.currentTarget.value.trim() || (task.images?.length ?? 0) > 0) return;
+                                  changeNote(task.id, "");
+                                  closeNote(task.id);
+                                }}
+                              />
+                            </CasePhotos>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="col-start-2 row-start-2 flex items-start gap-0.5 min-[481px]:col-start-3 min-[481px]:row-start-1">
+                        <button type="button" className={`${ibtn} ${hasNoteStuff(task) ? "bg-white/45 text-paper" : ""}`} aria-label="Case note" title="Case note" onClick={() => toggleNote(task)}><IconNote /></button>
+                        <button type="button" className={ibtn} aria-label="Move to tomorrow" title="Move to tomorrow" onClick={() => moveTask(task, addDays(task.day, 1))}><IconNext /></button>
+                        <button type="button" className={ibtn} aria-label="Delete task" title="Delete task" onClick={() => deleteTask(task)}><IconDel /></button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
-              {sortedReminders.length === 0 && <p className={emptyCls}>No reminders yet.</p>}
-              <form className={addForm} autoComplete="off" onSubmit={addReminder}>
-                <label className="sr-only" htmlFor="remText">New reminder</label>
-                <input id="remText" type="text" className={`${field} flex-[1_1_200px]`} placeholder="e.g. check incoming email" maxLength={120} required value={remText} onChange={(e) => setRemText(e.target.value)} />
-                <label className="sr-only" htmlFor="remTime">Time</label>
-                <input id="remTime" type="time" className={`${field} flex-none`} value={remTime} onChange={(e) => setRemTime(e.target.value)} />
+              {sortedTasks.length === 0 && <p className={emptyCls}>No tasks for this day yet.</p>}
+
+              <form className={addForm} autoComplete="off" onSubmit={addTask}>
+                <label className="sr-only" htmlFor="taskText">New task</label>
+                <input id="taskText" type="text" className={`${field} flex-[1_1_200px]`} placeholder="Write a new task" maxLength={200} required value={newText} onChange={(e) => setNewText(e.target.value)} />
+                <span className="inline-flex items-center gap-1.5 text-[0.82rem] text-paper-soft">
+                  <label htmlFor="taskDue">Due</label>
+                  <input id="taskDue" type="date" className={field} value={newDue} onChange={(e) => setNewDue(e.target.value)} />
+                </span>
                 <button className={pbtn} type="submit">Add</button>
               </form>
             </section>
 
-            {lateTasks.length > 0 && (
-              <section className={noteLate} aria-labelledby="lateH">
-                <h3 id="lateH" className={noteTitle}>Unfinished</h3>
-                <p className={hint}>Tasks from other days that are not done or are past due.</p>
+            <div className="flex min-w-0 flex-col gap-6.5">
+              <section className={noteRem} aria-labelledby="remH">
+                <h3 id="remH" className={noteTitle}>Daily reminders</h3>
+                <p className={hint}>Shows up every day. Checks are tracked per day.</p>
                 <ul>
-                  {lateShown.map((x) => {
-                    const di = dueInfo(x);
+                  {sortedReminders.map((r) => {
+                    const on = r.done.includes(view);
                     return (
-                      <li key={x.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 py-2 ${rowCls}`}>
-                        <span className="font-medium wrap-anywhere">{x.text}</span>
-                        <span className="col-start-1 text-[0.78rem] text-paper-soft">
-                          From {fmtShort.format(fromKey(x.day))}
-                          {di.text && <> · <b className="text-bad">{di.text}</b></>}
-                        </span>
-                        <button type="button" className={`${pbtnSm} col-start-2 row-span-2 row-start-1`} onClick={() => moveTask(x, view)}>Move here</button>
+                      <li key={r.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1 py-2 ${rowCls}`}>
+                        <input type="checkbox" id={`rc-${r.id}`} className="m-0 size-5 accent-done" checked={on} onChange={(e) => toggleReminder(r, e.target.checked)} />
+                        <label className={`font-medium wrap-anywhere ${on ? "text-paper-soft line-through" : ""}`} htmlFor={`rc-${r.id}`}>{r.text}</label>
+                        <span className="text-[0.85rem] font-bold tabular-nums">{r.time}</span>
+                        <button type="button" className={ibtn} aria-label={`Delete reminder: ${r.text}`} title="Delete reminder" onClick={() => deleteReminder(r)}><IconDel /></button>
                       </li>
                     );
                   })}
                 </ul>
-                {lateTasks.length > lateShown.length && <p className="mt-1.5 text-[0.8rem] text-paper-soft">+ {lateTasks.length - lateShown.length} more tasks</p>}
+                {sortedReminders.length === 0 && <p className={emptyCls}>No reminders yet.</p>}
+                <form className={addForm} autoComplete="off" onSubmit={addReminder}>
+                  <label className="sr-only" htmlFor="remText">New reminder</label>
+                  <input id="remText" type="text" className={`${field} flex-[1_1_200px]`} placeholder="e.g. check incoming email" maxLength={120} required value={remText} onChange={(e) => setRemText(e.target.value)} />
+                  <label className="sr-only" htmlFor="remTime">Time</label>
+                  <input id="remTime" type="time" className={`${field} flex-none`} value={remTime} onChange={(e) => setRemTime(e.target.value)} />
+                  <button className={pbtn} type="submit">Add</button>
+                </form>
               </section>
-            )}
-          </div>
-        </main>
+
+              <DayChecklists
+                lists={lists}
+                shows={shows}
+                day={view}
+                setShows={setShows}
+                onError={showToast}
+                goManage={() => setScreen("lists")}
+              />
+
+              {lateTasks.length > 0 && (
+                <section className={noteLate} aria-labelledby="lateH">
+                  <h3 id="lateH" className={noteTitle}>Unfinished</h3>
+                  <p className={hint}>Tasks from other days that are not done or are past due.</p>
+                  <ul>
+                    {lateShown.map((x) => {
+                      const di = dueInfo(x);
+                      return (
+                        <li key={x.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 py-2 ${rowCls}`}>
+                          <span className="font-medium wrap-anywhere">{x.text}</span>
+                          <span className="col-start-1 text-[0.78rem] text-paper-soft">
+                            From {fmtShort.format(fromKey(x.day))}
+                            {di.text && <> · <b className="text-bad">{di.text}</b></>}
+                          </span>
+                          <button type="button" className={`${pbtnSm} col-start-2 row-span-2 row-start-1`} onClick={() => moveTask(x, view)}>Move here</button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {lateTasks.length > lateShown.length && <p className="mt-1.5 text-[0.8rem] text-paper-soft">+ {lateTasks.length - lateShown.length} more tasks</p>}
+                </section>
+              )}
+            </div>
+          </main>
+        )}
       </div>
 
       {toast && (

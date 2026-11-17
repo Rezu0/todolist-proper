@@ -1,0 +1,70 @@
+/*
+  Semua warna diturunkan dari hue (--h) dan saturasi (--s).
+  Variabel turunan dideklarasikan di :root DAN .themed, supaya elemen pembungkus
+  (yang membawa --h / data-accent sendiri) menghitung ulang warnanya.
+*/
+
+:root,
+.themed {
+  color-scheme: light;
+
+  --h: 215; --s: 14%;
+  --h-todo: 49; --h-rem: 346; --h-slip: 197; --h-late: 26; --h-list: 102;
+
+  --desk: hsl(var(--h) var(--s) 86%);
+  --ink: hsl(var(--h) 30% 14%);
+  --ink-soft: hsl(var(--h) 14% 34%);
+  --bar: hsl(var(--h) var(--s) 92%);
+  --line: hsl(var(--h) var(--s) 72%);
+  --accent: hsl(var(--h) 52% 36%);
+  --on-accent: #ffffff;
+  --warn: #a21d16;
+  --fill: #2d8a50;
+  --meter: #2d8a50;
+
+  --p-todo: hsl(var(--h-todo) 85% 72%);
+  --p-rem: hsl(var(--h-rem) 75% 85%);
+  --p-slip: hsl(var(--h-slip) 60% 83%);
+  --p-late: hsl(var(--h-late) 90% 80%);
+  --p-list: hsl(var(--h-list) 50% 81%);
+
+  --paper-ink: #2b2518;
+  --paper-soft: #5e5640;
+  --doing: #1c58b8;
+  --done: #1b743f;
+  --bad: #a21d16;
+}
+
+/* Preset tema: hanya mengganti hue; harus setelah blok di atas */
+[data-accent="blue"] { --h: 205; --s: 62%; --h-todo: 200; --h-rem: 340; --h-slip: 50; --h-late: 24; --h-list: 150; }
+[data-accent="green"] { --h: 100; --s: 38%; --h-todo: 90; --h-rem: 345; --h-slip: 190; --h-late: 35; --h-list: 150; }
+[data-accent="pink"] { --h: 340; --s: 62%; --h-todo: 340; --h-rem: 50; --h-slip: 195; --h-late: 25; --h-list: 150; }
+[data-accent="purple"] { --h: 265; --s: 50%; --h-todo: 265; --h-rem: 340; --h-slip: 190; --h-late: 40; --h-list: 130; }
+[data-accent="orange"] { --h: 22; --s: 70%; --h-todo: 28; --h-rem: 345; --h-slip: 195; --h-late: 10; --h-list: 130; }
+[data-accent="lemon"] { --h: 48; --s: 75%; --h-todo: 48; --h-rem: 340; --h-slip: 195; --h-late: 22; --h-list: 130; }
+[data-accent="mint"] { --h: 160; --s: 45%; --h-todo: 160; --h-rem: 345; --h-slip: 50; --h-late: 25; --h-list: 195; }
+
+/* Dark mengikuti pengaturan sistem */
+@media (prefers-color-scheme: dark) {
+  :root,
+  .themed {
+    color-scheme: dark;
+
+    --desk: hsl(var(--h) calc(var(--s) * 0.7) 13%);
+    --ink: hsl(var(--h) 20% 92%);
+    --ink-soft: hsl(var(--h) 12% 70%);
+    --bar: hsl(var(--h) calc(var(--s) * 0.7) 18%);
+    --line: hsl(var(--h) calc(var(--s) * 0.6) 28%);
+    --accent: hsl(var(--h) 90% 80%);
+    --on-accent: hsl(var(--h) 50% 16%);
+    --warn: #ff9a90;
+    --fill: #4fb878;
+    --meter: #4fb878;
+
+    --p-todo: hsl(var(--h-todo) 65% 66%);
+    --p-rem: hsl(var(--h-rem) 50% 76%);
+    --p-slip: hsl(var(--h-slip) 40% 76%);
+    --p-late: hsl(var(--h-late) 67% 67%);
+    --p-list: hsl(var(--h-list) 38% 72%);
+  }
+}

@@ -2,12 +2,14 @@ export type Status = "todo" | "doing" | "done";
 
 export interface Task {
   id: string;
-  day: string; // YYYY-MM-DD
   text: string;
   status: Status;
-  due: string; // YYYY-MM-DD atau ""
+  due: string;
   note: string;
+  day: string;
   created: number;
+  color: string;
+  images: string[];
 }
 
 export interface Reminder {
