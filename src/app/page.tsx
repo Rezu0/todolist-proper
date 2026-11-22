@@ -9,6 +9,7 @@ import User from "@/models/User";
 import Task from "@/models/Task";
 import Reminder from "@/models/Reminder";
 import Checklist, { ChecklistShow } from "@/models/Checklist";
+import Image from "@/models/Image";
 import Board from "@/components/Board";
 
 export const metadata = {
@@ -22,19 +23,27 @@ async function BoardLoader() {
 
   await connectDB();
 
-  const [user, tasks, reminders, lists, shows] = await Promise.all([
+  const [user, tasks, reminders, lists, shows, imgs] = await Promise.all([
     User.findById(uid).select("name email settings").lean<{ name?: string; email: string; settings?: unknown }>(),
     Task.find({ userId: uid }).sort({ createdAt: 1 }).lean<TaskDoc[]>(),
     Reminder.find({ userId: uid }).sort({ createdAt: 1 }).lean<ReminderDoc[]>(),
     Checklist.find({ userId: uid }).sort({ createdAt: 1 }).lean<ListDoc[]>(),
     ChecklistShow.find({ userId: uid }).lean<ShowDoc[]>(),
+    // Hanya id dan taskId; byte fotonya tidak ikut dimuat
+    Image.find({ userId: uid }).select("_id taskId").sort({ createdAt: 1 }).lean<{ _id: { toString(): string }; taskId: { toString(): string } }[]>(),
   ]);
+
+  const imagesByTask = new Map<string, string[]>();
+  for (const im of imgs) {
+    const k = im.taskId.toString();
+    imagesByTask.set(k, [...(imagesByTask.get(k) ?? []), im._id.toString()]);
+  }
 
   if (!user) redirect("/login");
 
   return (
     <Board
-      initialTasks={tasks.map(toTask)}
+      initialTasks={tasks.map((d) => ({ ...toTask(d), images: imagesByTask.get(d._id.toString()) ?? [] }))}
       initialReminders={reminders.map(toReminder)}
       initialLists={lists.map(toList)}
       initialShows={shows.map(toShow)}

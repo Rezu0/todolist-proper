@@ -4,6 +4,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { compressImage } from "@/lib/compress";
 
 const MAX = 12;
@@ -18,11 +19,9 @@ interface Props {
 }
 
 export default function CasePhotos({ taskId, images, onChange, onError, children }: Props) {
-  const safeImages = Array.isArray(images) ? images : [];
-
   const fileRef = useRef<HTMLInputElement>(null);
-  const latest = useRef<string[]>(safeImages);
-  latest.current = safeImages;
+  const latest = useRef(images);
+  latest.current = images;
   const [busy, setBusy] = useState(false);
   const [drop, setDrop] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -105,14 +104,14 @@ export default function CasePhotos({ taskId, images, onChange, onError, children
     >
       {children}
 
-      {safeImages.length > 0 && (
+      {images.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
-            {safeImages.map((id) => (
+          {images.map((id) => (
             <div key={id} className="relative">
               <button
                 type="button"
                 aria-label="View photo"
-                className={`block size-21 cursor-pointer overflow-hidden rounded-[10px] border border-paper/30 bg-white/50 p-0 ${focusPaper}`}
+                className={`block size-[84px] cursor-pointer overflow-hidden rounded-[10px] border border-paper/30 bg-white/50 p-0 ${focusPaper}`}
                 onClick={() => setView(id)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -122,7 +121,7 @@ export default function CasePhotos({ taskId, images, onChange, onError, children
                 type="button"
                 aria-label="Remove photo"
                 title="Remove photo"
-                className={`absolute top-0.75 right-0.75 h-5.5 min-w-5.5 cursor-pointer rounded-full border-0 text-[0.8rem] leading-none font-bold text-white ${
+                className={`absolute top-[3px] right-[3px] h-[22px] min-w-[22px] cursor-pointer rounded-full border-0 text-[0.8rem] leading-none font-bold text-white ${
                   confirmId === id ? "bg-bad px-2 text-[0.7rem]" : "bg-black/70 p-0"
                 } ${focusPaper}`}
                 onClick={() => askRemove(id)}
@@ -138,7 +137,7 @@ export default function CasePhotos({ taskId, images, onChange, onError, children
         <button
           type="button"
           disabled={busy}
-          className={`cursor-pointer rounded-full border border-dashed border-paper-soft bg-white/50 px-2.5 py-0.75 text-[0.78rem] font-semibold text-paper disabled:cursor-default disabled:opacity-60 ${focusPaper}`}
+          className={`cursor-pointer rounded-full border border-dashed border-paper-soft bg-white/50 px-2.5 py-[3px] text-[0.78rem] font-semibold text-paper disabled:cursor-default disabled:opacity-60 ${focusPaper}`}
           onClick={() => fileRef.current?.click()}
         >
           {busy ? "Adding…" : "+ Add photo"}
@@ -158,17 +157,20 @@ export default function CasePhotos({ taskId, images, onChange, onError, children
         />
       </div>
 
-      {view && (
-        <div
-          role="dialog"
-          aria-label="Photo"
-          className="fixed inset-0 z-9 flex cursor-zoom-out items-center justify-center bg-black/85 p-4"
-          onClick={() => setView(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/api/images/${view}`} alt="Attached photo" className="max-h-full max-w-full rounded-[10px]" />
-        </div>
-      )}
+      {/* Portal ke body: ancestor yang memakai transform (rotate pada note) membatasi position:fixed */}
+      {view &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-label="Photo"
+            className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85 p-4"
+            onClick={() => setView(null)}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/images/${view}`} alt="Attached photo" className="max-h-full max-w-full rounded-[10px]" />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -521,12 +521,7 @@ export default function Board({ initialTasks, initialReminders, initialLists, in
                             <CasePhotos
                               taskId={task.id}
                               images={task.images ?? []}
-                              onChange={(images) => {
-                                setLocal(task.id, { images });
-                                api(`/api/tasks/${task.id}`, "PATCH", { images }).catch(() => {
-                                  showToast("Failed to save photos");
-                                });
-                              }}
+                              onChange={(images) => setLocal(task.id, { images })}
                               onError={showToast}
                             >
                               <textarea

@@ -3,7 +3,6 @@ import { connectDB } from "@/lib/mongodb";
 import { getUserId } from "@/lib/auth";
 import { fail, unauthorized } from "@/lib/http";
 import Image from "@/models/Image";
-import Task from "@/models/Task";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -14,10 +13,11 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   try {
     await connectDB();
-    const img = await Image.findOne({ _id: id, userId: uid }).lean<{ data: Buffer; contentType: string }>();
+    // Tanpa .lean(): dengan dokumen Mongoose biasa, field Buffer selalu berupa Buffer.
+    // (Dengan lean(), driver bisa mengembalikan objek Binary yang tidak bisa dibaca sebagai byte.)
+    const img = await Image.findOne({ _id: id, userId: uid }).select("data contentType");
     if (!img) return NextResponse.json({ error: "Foto tidak ditemukan" }, { status: 404 });
-    // Buffer dari lean() bisa berupa Binary; Buffer.from menormalkannya
-    const bytes = Buffer.from(img.data as unknown as Uint8Array);
+    const bytes = Buffer.from(img.data as Buffer);
     return new Response(bytes, {
       headers: {
         "Content-Type": img.contentType,
@@ -38,9 +38,8 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   try {
     await connectDB();
-    const img = await Image.findOneAndDelete({ _id: id, userId: uid });
-    if (!img) return NextResponse.json({ error: "Foto tidak ditemukan" }, { status: 404 });
-    await Task.updateOne({ _id: img.taskId, userId: uid }, { $pull: { images: img._id } });
+    const res = await Image.deleteOne({ _id: id, userId: uid });
+    if (!res.deletedCount) return NextResponse.json({ error: "Foto tidak ditemukan" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

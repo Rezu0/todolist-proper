@@ -7,6 +7,8 @@ export interface TaskDoc {
   status: Status;
   due?: string;
   note?: string;
+  images?: { toString(): string }[];
+  color?: string;
   createdAt: Date;
 }
 
@@ -25,6 +27,8 @@ export function toTask(d: TaskDoc): Task {
     status: d.status,
     due: d.due ?? "",
     note: d.note ?? "",
+    images: (d.images ?? []).map((i) => i.toString()),
+    color: d.color ?? "",
     created: new Date(d.createdAt).getTime(),
   };
 }
@@ -32,3 +36,19 @@ export function toTask(d: TaskDoc): Task {
 export function toReminder(d: ReminderDoc): Reminder {
   return { id: d._id.toString(), text: d.text, time: d.time ?? "", done: d.done ?? [] };
 }
+
+/*
+  Di lib/types.ts, ubah interface Task menjadi:
+
+  export interface Task {
+    id: string;
+    day: string;
+    text: string;
+    status: Status;
+    due: string;
+    note: string;
+    images: string[]; // id foto
+    color: string;    // "#rrggbb" atau ""
+    created: number;
+  }
+*/
