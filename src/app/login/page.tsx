@@ -104,7 +104,7 @@ export default function LoginPage() {
         {/* Form card */}
         <div className="rounded-[28px] border border-[#e7e2d8] bg-[#fffefa] p-6 shadow-[0_12px_50px_-20px_rgba(54,48,37,0.18)] sm:p-9">
           {/* Mode switch */}
-          <div className="mb-7 grid grid-cols-2 rounded-xl bg-[#f3f0e9] p-1">
+          <div className="mb-7 grid grid-cols-2 rounded-xl bg-[#f3f0e9] text-gray-800 p-1">
             <button
               type="button"
               onClick={() => {
@@ -113,7 +113,7 @@ export default function LoginPage() {
               }}
               className={`rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                 isLogin
-                  ? "bg-[#fffefa] text-[#292720] shadow-sm"
+                  ? "bg-[#a07a53] text-[#292720] shadow-sm"
                   : "text-[#8a8478] hover:text-[#514b3f]"
               }`}
             >
@@ -128,7 +128,7 @@ export default function LoginPage() {
               }}
               className={`rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                 !isLogin
-                  ? "bg-[#fffefa] text-[#292720] shadow-sm"
+                  ? "bg-[#a07a53] text-[#292720] shadow-sm"
                   : "text-[#8a8478] hover:text-[#514b3f]"
               }`}
             >
